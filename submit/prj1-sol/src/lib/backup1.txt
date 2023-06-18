@@ -1,0 +1,193 @@
+import { Result, okResult, errResult } from 'cs544-js-utils';
+import { default as parse, CellRef, Ast } from './expr-parser.js';
+
+export default async function makeSpreadsheet(name: string): Promise<Result<Spreadsheet>> {
+  return okResult(new Spreadsheet(name));
+}
+
+type Updates = { [cellId: string]: number };
+
+export class CellInfo {
+  formula: string;
+  value: number;
+  dependents: Set<string>;
+
+  constructor(formula: string) {
+    this.formula = formula;
+    this.value = 0;
+    this.dependents = new Set();
+  }
+}
+
+export class Spreadsheet {
+  readonly name: string;
+  private cells: { [cellId: string]: CellInfo };
+
+  constructor(name: string) {
+    this.name = name;
+    this.cells = {};
+  }
+
+  async eval(cellId: string, expr: string): Promise<Result<Updates>> {
+    const astResult = parse(expr, cellId);
+
+    if (!astResult.isOk) {
+      return errResult('Syntax error in formula', 'SYNTAX');
+    }
+    
+    const ast = astResult.val;
+
+    const baseCellRefResult = CellRef.parse(cellId);
+
+    if (!baseCellRefResult.isOk) {
+      return errResult('Invalid cell id', 'SYNTAX');
+    }
+
+    const baseCellRef = baseCellRefResult.val;
+
+    const evalResult = await this.evaluateAst(ast, baseCellRef, new Set([cellId]));
+
+    if (!evalResult.isOk) {
+      const msg = 'Circular reference detected';
+      return errResult(msg, 'CIRCULAR_REF');
+    }
+
+    const updates: Updates = {};
+
+    updates[cellId] = evalResult.val;
+
+    const cellInfo = this.cells[cellId] || new CellInfo(expr);
+    cellInfo.value = evalResult.val;
+    cellInfo.formula = expr;
+    this.cells[cellId] = cellInfo;
+
+    const dependentUpdates = await this.updateDependents(cellId);
+    Object.assign(updates, dependentUpdates);
+
+    return okResult(updates);
+  }
+
+  private async evaluateAst(ast: Ast, baseCellRef: CellRef, visited: Set<string>): Promise<Result<number>> {
+    switch (ast.kind) {
+      case 'num':
+        return okResult(ast.value);
+      case 'app':
+        
+        if (ast.fn === '+') {
+          // const args = await Promise.all(ast.kids.map((kid) => this.evaluateAst(kid, baseCellRef, visited)));
+          const args = await Promise.all(ast.kids.map((kid) => this.evaluateAst(kid, baseCellRef, visited)));
+      
+          const allOk = args.every((val) => val.isOk);
+          if (allOk) {
+              const argValues = args.map((val) => val.isOk ? val.val : 0);
+              const result = argValues.reduce((acc, val) => acc + val, 0);
+      
+              return okResult(result);
+          } else {
+              return errResult('Error evaluating arguments for + function', 'SYNTAX');
+          }
+      }
+
+        
+        const kidsValues = await Promise.all(ast.kids.map((kid) => this.evaluateAst(kid, baseCellRef, new Set(visited))));
+
+        if (kidsValues.some((val) => !val.isOk)) {
+          return errResult('Circular reference detected', 'CIRCULAR_REF');
+        }
+
+        const fn = FNS[ast.fn];
+
+        if (!fn) {
+          return errResult('Unknown function', 'SYNTAX');
+        }
+
+        const args = kidsValues.map((val) => {
+          if (val.isOk) {
+            return val.val;
+          } else {
+            // Handle the error case
+            throw new Error('Invalid result type');
+          }
+        });
+
+        let result;
+        try {
+          result = fn.apply(null, args);
+        } catch (error) {
+          return errResult('Invalid result type', 'SYNTAX');
+        }
+
+        if (typeof result !== 'number') {
+          return errResult('Invalid result type', 'SYNTAX');
+        }
+
+        return okResult(result);
+        case 'ref':
+          // const cellId = ast.toText(baseCellRef);
+    
+          // if (visited.has(cellId)) {
+          //   return errResult('Circular reference detected', 'CIRCULAR_REF');
+          // }
+          const cellId = ast.toText(baseCellRef);
+
+          if (visited.has(cellId)) {
+            return errResult('Circular reference detected', 'CIRCULAR_REF');
+          }
+          visited.add(cellId);
+    
+          const cellInfo = this.cells[cellId];
+          if (cellInfo) {
+            cellInfo.dependents.add(baseCellRef.toText());
+            return okResult(cellInfo.value);
+          } else {
+            const newCellInfo = new CellInfo('');
+            newCellInfo.dependents.add(baseCellRef.toText());
+            this.cells[cellId] = newCellInfo;
+            return okResult(0);
+          }
+        default:
+          return errResult('Invalid AST node', 'SYNTAX');
+      }
+    }
+
+  
+  private async updateDependents(cellId: string, visited: Set<string> = new Set()): Promise<Updates> {
+    const updates: Updates = {};
+    const cellInfo = this.cells[cellId];
+    if (cellInfo) {
+      for (const dependentId of cellInfo.dependents.values()) {
+        if (!visited.has(dependentId)) { // Avoid revisiting already visited cells
+          visited.add(dependentId); // Add the cell to the visited set
+          const dependentInfo = this.cells[dependentId];
+          if (dependentInfo) {
+            const astResult = parse(dependentInfo.formula, dependentId);
+            if (astResult.isOk) {
+              const baseCellRefResult = CellRef.parse(dependentId);
+              if (baseCellRefResult.isOk) {
+                const evalResult = await this.evaluateAst(astResult.val, baseCellRefResult.val, new Set());
+                if (evalResult.isOk) {
+                  updates[dependentId] = evalResult.val;
+                  dependentInfo.value = evalResult.val;
+                  Object.assign(updates, await this.updateDependents(dependentId, new Set(visited))); // Pass a new visited set for each recursive call
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return updates;
+  }
+
+  }
+  
+const FNS = {
+  '+': (a: number, b: number): number => a + b,
+  '-': (a: number, b?: number): number => (b === undefined ? -a : a - b),
+  '*': (a: number, b: number): number => a * b,
+  '/': (a: number, b: number): number => a / b,
+  min: (a: number, b: number): number => Math.min(a, b),
+  max: (a: number, b: number): number => Math.max(a, b),
+};
+
+
