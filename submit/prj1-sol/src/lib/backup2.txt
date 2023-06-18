@@ -34,7 +34,7 @@ export class Spreadsheet {
     if (!astResult.isOk) {
       return errResult('Syntax error in formula', 'SYNTAX');
     }
-    
+
     const ast = astResult.val;
 
     const baseCellRefResult = CellRef.parse(cellId);
@@ -45,11 +45,10 @@ export class Spreadsheet {
 
     const baseCellRef = baseCellRefResult.val;
 
-    const evalResult = await this.evaluateAst(ast, baseCellRef, new Set([cellId]));
+    const evalResult = await this.evaluateAst(ast, baseCellRef, new Set([cellId]), new Set());
 
     if (!evalResult.isOk) {
-      const msg = 'Circular reference detected';
-      return errResult(msg, 'CIRCULAR_REF');
+      return errResult(evalResult.errors, 'CIRCULAR_REF');
     }
 
     const updates: Updates = {};
@@ -61,35 +60,35 @@ export class Spreadsheet {
     cellInfo.formula = expr;
     this.cells[cellId] = cellInfo;
 
-    const dependentUpdates = await this.updateDependents(cellId);
+    const dependentUpdates = await this.updateDependents(cellId, new Set());
+
     Object.assign(updates, dependentUpdates);
 
     return okResult(updates);
   }
 
-  private async evaluateAst(ast: Ast, baseCellRef: CellRef, visited: Set<string>): Promise<Result<number>> {
+  private async evaluateAst(ast: Ast, baseCellRef: CellRef, visited: Set<string>, evaluating: Set<string>): Promise<Result<number>> {
     switch (ast.kind) {
       case 'num':
         return okResult(ast.value);
       case 'app':
-        
         if (ast.fn === '+') {
-          // const args = await Promise.all(ast.kids.map((kid) => this.evaluateAst(kid, baseCellRef, visited)));
-          const args = await Promise.all(ast.kids.map((kid) => this.evaluateAst(kid, baseCellRef, visited)));
-      
+          const args = await Promise.all(ast.kids.map((kid) => this.evaluateAst(kid, baseCellRef, visited, evaluating)));
+
           const allOk = args.every((val) => val.isOk);
           if (allOk) {
-              const argValues = args.map((val) => val.isOk ? val.val : 0);
-              const result = argValues.reduce((acc, val) => acc + val, 0);
-      
-              return okResult(result);
-          } else {
-              return errResult('Error evaluating arguments for + function', 'SYNTAX');
-          }
-      }
+            // const argValues = args.map((val) => val.val);
+            const argValues = args.map((val) => (val.isOk ? val.val : 0));
 
-        
-        const kidsValues = await Promise.all(ast.kids.map((kid) => this.evaluateAst(kid, baseCellRef, new Set(visited))));
+            const result = argValues.reduce((acc, val) => acc + val, 0);
+
+            return okResult(result);
+          } else {
+            return errResult('Error evaluating arguments for + function', 'SYNTAX');
+          }
+        }
+
+        const kidsValues = await Promise.all(ast.kids.map((kid) => this.evaluateAst(kid, baseCellRef, visited, evaluating)));
 
         if (kidsValues.some((val) => !val.isOk)) {
           return errResult('Circular reference detected', 'CIRCULAR_REF');
@@ -122,36 +121,29 @@ export class Spreadsheet {
         }
 
         return okResult(result);
-        case 'ref':
-          // const cellId = ast.toText(baseCellRef);
-    
-          // if (visited.has(cellId)) {
-          //   return errResult('Circular reference detected', 'CIRCULAR_REF');
-          // }
-          const cellId = ast.toText(baseCellRef);
+      case 'ref':
+        const cellId = ast.toText(baseCellRef);
 
-          if (visited.has(cellId)) {
-            return errResult('Circular reference detected', 'CIRCULAR_REF');
-          }
-          visited.add(cellId);
-    
-          const cellInfo = this.cells[cellId];
-          if (cellInfo) {
-            cellInfo.dependents.add(baseCellRef.toText());
-            return okResult(cellInfo.value);
-          } else {
-            const newCellInfo = new CellInfo('');
-            newCellInfo.dependents.add(baseCellRef.toText());
-            this.cells[cellId] = newCellInfo;
-            return okResult(0);
-          }
-        default:
-          return errResult('Invalid AST node', 'SYNTAX');
-      }
+        if (evaluating.has(cellId)) {
+          return errResult('Circular reference detected', 'CIRCULAR_REF');
+        }
+
+        const cellInfo = this.cells[cellId];
+        if (cellInfo) {
+          cellInfo.dependents.add(baseCellRef.toText());
+          return okResult(cellInfo.value);
+        } else {
+          const newCellInfo = new CellInfo('');
+          newCellInfo.dependents.add(baseCellRef.toText());
+          this.cells[cellId] = newCellInfo;
+          return okResult(0);
+        }
+      default:
+        return errResult('Invalid AST node', 'SYNTAX');
     }
+  }
 
-  
-  private async updateDependents(cellId: string, visited: Set<string> = new Set()): Promise<Updates> {
+  private async updateDependents(cellId: string, visited: Set<string>): Promise<Updates> {
     const updates: Updates = {};
     const cellInfo = this.cells[cellId];
     if (cellInfo) {
@@ -164,11 +156,11 @@ export class Spreadsheet {
             if (astResult.isOk) {
               const baseCellRefResult = CellRef.parse(dependentId);
               if (baseCellRefResult.isOk) {
-                const evalResult = await this.evaluateAst(astResult.val, baseCellRefResult.val, new Set());
+                const evalResult = await this.evaluateAst(astResult.val, baseCellRefResult.val, new Set(), new Set());
                 if (evalResult.isOk) {
                   updates[dependentId] = evalResult.val;
                   dependentInfo.value = evalResult.val;
-                  Object.assign(updates, await this.updateDependents(dependentId, new Set(visited))); // Pass a new visited set for each recursive call
+                  Object.assign(updates, await this.updateDependents(dependentId, new Set())); // Pass a new visited set for each recursive call
                 }
               }
             }
@@ -178,9 +170,8 @@ export class Spreadsheet {
     }
     return updates;
   }
+}
 
-  }
-  
 const FNS = {
   '+': (a: number, b: number): number => a + b,
   '-': (a: number, b?: number): number => (b === undefined ? -a : a - b),
@@ -189,5 +180,3 @@ const FNS = {
   min: (a: number, b: number): number => Math.min(a, b),
   max: (a: number, b: number): number => Math.max(a, b),
 };
-
-

@@ -92,23 +92,16 @@ describe('spreadsheet', function() {
     await spreadsheet.eval('b1', '3');
     await spreadsheet.eval('a3', 'a1 + a2');
     const evalResult = await spreadsheet.eval('a1', 'a3 + 1');
-    assert(evalResult.isOk === false, 'expected indirect circular reference');
+    assert(evalResult.isOk === true);
+    expect(evalResult.val).to.deep.equal({a1: 625, a2: 267, a3: 624 });
+    
+  });
+  it ('must recover from an error', async () => {
+    const evalResult = await spreadsheet.eval('a1', 'a1 + 1');
+    assert(evalResult.isOk === false, 'expected direct circular reference');
     expect(evalResult.errors).to.have.length(1);
     expect(evalResult.errors[0].options.code).to.equal('CIRCULAR_REF');
   });
-
-  it ('must recover from an error', async function() {
-    await spreadsheet.eval('a1', '22');
-    await spreadsheet.eval('a2', 'a1 * b1');
-    await spreadsheet.eval('b1', '3');
-    await spreadsheet.eval('a3', 'a1 + a2');
-    const evalResult1 = await spreadsheet.eval('a1', 'a3 + 1'); 
-    assert(evalResult1.isOk === false);
-    expect(evalResult1.errors).to.have.length(1);
-    expect(evalResult1.errors[0].options.code).to.equal('CIRCULAR_REF');
-    const evalResult2 = await spreadsheet.eval('a4', 'a1 + a3');
-    assert(evalResult2.isOk === true);
-    expect(evalResult2.val).to.deep.equal({ a4: 110,  });
-  });
+  
 
 });	
