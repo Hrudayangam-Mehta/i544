@@ -6,7 +6,7 @@ import { panic } from 'cs544-js-utils';
 
 import { assert, expect } from 'chai';
 
-describe('scan', function() {
+describe('scan', function() { 
 
   let CELL_A1: CellRef;
   let CELL_E9: CellRef;
