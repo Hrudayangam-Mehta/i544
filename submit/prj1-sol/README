@@ -2,5 +2,6 @@ Name:		Hrudayangam Mehta
 B-Number:	B00983390
 Email:		hmehta@binghamton.edu
 
-Add text here as needed.
-
+to run:
+open an integrated terminal and run by giving the command => npm run test
+will pass all the test cases
