@@ -1,0 +1,195 @@
+# annotated and edited log of interaction with projects command-line interface
+
+# show usage message
+$ node ./dist/index.js
+usage: index.js MONGO_DB_URL SPREADSHEET_NAME CMD [ARGS...]
+Command CMD can be
+    clear 
+      clear spreadsheet
+    copy DEST_CELL_ID SRC_CELL_ID
+      copy formula from cell SRC_CELL_ID to cell DEST_CELL_ID
+    delete CELL_ID
+      delete formula in cell specified by CELL_ID
+    dump 
+      dump spreadsheet formulas in topological order to stdout
+    eval CELL_ID FORMULA
+      eval formula FORMULA into cell CELL_ID
+    load FILE
+      load previously dumped data from file FILE into spreadsheet
+    query CELL_ID
+      return formula and current value of cell specified by CELL_ID
+
+# clear spreadsheet named ss
+$ node ./dist/index.js mongodb://localhost:27017 ss clear
+
+# add formula involving cell b1 which is currently empty (default value 0)
+$ node ./dist/index.js mongodb://localhost:27017 ss eval a1 'b1 * 2 + 3'
+{
+  "a1": 3
+}
+
+# define b1 (note that dependent a1 is automatically recomputed).
+$ node ./dist/index.js mongodb://localhost:27017 ss eval b1 5
+{
+  "b1": 5,
+  "a1": 13
+}
+
+# copy a1 formula to d3: will become d3 = e3 * 2 + 3
+$ node ./dist/index.js mongodb://localhost:27017 ss copy d3 a1
+{
+  "d3": 3
+}
+
+# define e3 in terms of empty cell e2;
+# note that even though d3's value is unchanged, it is printed
+# because it is dependent on e3.
+$ node ./dist/index.js mongodb://localhost:27017 ss eval e3 'e2 * 3'
+{
+  "e3": 0,
+  "d3": 3
+}
+
+# e2 definition ripples across dependents
+$ node ./dist/index.js mongodb://localhost:27017 ss eval e2 '4'
+{
+  "e2": 4,
+  "e3": 12,
+  "d3": 27
+}
+
+# dump out spreadsheet formulas
+$ node ./dist/index.js mongodb://localhost:27017 ss dump
+[
+  [
+    "b1",               # no dependency
+    "5"
+  ],
+  [
+    "e2",               # no dependency but lexically after b1
+    "4"
+  ],
+  [
+    "a1",               # dependent on b1, hence after b1
+    "b1*2+3"
+  ],
+  [
+    "e3",               # dependent on e2, hence printed after e2
+    "e2*3"              # e3 lexically after a1, hence printed after a1
+  ],
+  [
+    "d3",               # dependent on e3, hence printed after e3
+    "e3*2+3"
+  ]
+]
+
+# deleting e2 gives it default value of 0 and values of dependents printed
+$ node ./dist/index.js mongodb://localhost:27017 ss delete e2
+{
+  "e3": 0,
+  "d3": 3
+}
+
+# note that even though dump has formula involving e2, there is
+# no entry for it since it is empty
+$ node ./dist/index.js mongodb://localhost:27017 ss dump
+[
+  [
+    "b1",
+    "5"
+  ],
+  [
+    "a1",
+    "b1*2+3"
+  ],
+  [
+    "e3",
+    "e2*3"
+  ],
+  [
+    "d3",
+    "e3*2+3"
+  ]
+]
+
+# define two cells with the second dependent on first
+$ node ./dist/index.js mongodb://localhost:27017 ss eval c1 5
+{
+  "c1": 5
+}
+$ node ./dist/index.js mongodb://localhost:27017 ss eval d1 'c1 + 2'
+{
+  "d1": 7
+}
+
+# copy a1 = b1*2 + 3 to c1 makes c1 = d1*2 + 3.
+# but d1 = c1 + 2 and we have a circular dependency flagged
+$ node ./dist/index.js mongodb://localhost:27017 ss copy c1 a1
+circular ref involving d1
+
+
+# capture spreadsheet dump into a file
+$ node ./dist/index.js mongodb://localhost:27017 ss dump > ~/tmp/t.json
+
+# load dump into a new spreadsheet with name ss-copy
+$ node ./dist/index.js mongodb://localhost:27017 ss-copy load ~/tmp/t.json
+
+# dump out copy
+$ node ./dist/index.js mongodb://localhost:27017 ss-copy dump
+[
+  [
+    "b1",
+    "5"
+  ],
+  [
+    "c1",
+    "5"
+  ],
+  [
+    "a1",
+    "b1*2+3"
+  ],
+  [
+    "d1",
+    "c1+2"
+  ],
+  [
+    "e3",
+    "e2*3"
+  ],
+  [
+    "d3",
+    "e3*2+3"
+  ]
+]
+
+# dump out original to compare identical
+$ node ./dist/index.js mongodb://localhost:27017 ss dump
+[
+  [
+    "b1",
+    "5"
+  ],
+  [
+    "c1",
+    "5"
+  ],
+  [
+    "a1",
+    "b1*2+3"
+  ],
+  [
+    "d1",
+    "c1+2"
+  ],
+  [
+    "e3",
+    "e2*3"
+  ],
+  [
+    "d3",
+    "e3*2+3"
+  ]
+]
+
+$
