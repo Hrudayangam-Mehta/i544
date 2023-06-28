@@ -1,5 +1,117 @@
 import { Result, okResult, errResult } from 'cs544-js-utils';
 import * as mongo from 'mongodb';
+import { ObjectId } from 'mongodb';
+
+export async function
+makeSpreadsheetDao(mongodbUrl: string, ssName: string)
+  : Promise<Result<SpreadsheetDao>> 
+{
+  return SpreadsheetDao.make(mongodbUrl, ssName);
+}
+
+export class SpreadsheetDao {
+  private db: mongo.Db;
+  private collection: mongo.Collection;
+
+  static async make(dbUrl: string, ssName: string)
+    : Promise<Result<SpreadsheetDao>>
+  {
+    try {
+      
+      const client = await mongo.MongoClient.connect(dbUrl);
+
+
+      const db = client.db(ssName);
+      const collection = db.collection(ssName);
+      return okResult(new SpreadsheetDao(client, db, collection));
+    } catch (err) {
+      return errResult(err, 'DB');
+    }
+  }
+
+  private constructor(private client: mongo.MongoClient, db: mongo.Db, collection: mongo.Collection) {
+    this.db = db;
+    this.collection = collection;
+  }
+
+  async close() : Promise<Result<undefined>> {
+    try {
+      await this.client.close();
+      return okResult(undefined);
+    } catch (err) {
+      return errResult(err, 'DB');
+    }
+  }
+
+  getSpreadsheetName() : string {
+    return this.collection.collectionName;
+  }
+
+  async setCellExpr(cellId: string, expr: string)
+    : Promise<Result<undefined>>
+  {
+    try {
+
+      await this.collection.updateOne({ _id: new ObjectId(cellId) }, { $set: { expr } }, { upsert: true });
+      return okResult(undefined);
+    } catch (err) {
+      return errResult(err, 'DB');
+    }
+  }
+
+  async query(cellId: string) : Promise<Result<string>> {
+    try {
+      // const doc = await this.collection.findOne({ _id: cellId });
+      const doc = await this.collection.findOne({ _id: new mongo.ObjectId(cellId) });
+
+      return okResult(doc ? doc.expr : '');
+    } catch (err) {
+      return errResult(err, 'DB');
+    }
+  }
+
+  async clear() : Promise<Result<undefined>> {
+    try {
+      await this.collection.deleteMany({});
+      return okResult(undefined);
+    } catch (err) {
+      return errResult(err, 'DB');
+    }
+  }
+
+  async remove(cellId: string) : Promise<Result<undefined>> {
+    try {
+      // await this.collection.deleteOne({ _id: cellId });
+      await this.collection.deleteOne({ _id: new mongo.ObjectId(cellId) });
+
+      return okResult(undefined);
+    } catch (err) {
+      return errResult(err, 'DB');
+    }
+  }
+
+ 
+  async getData(): Promise<Result<[string, string][]>> {
+    try {
+      const data = await this.collection.find({}).toArray();
+      return okResult(data.map(doc => [doc._id.toString(), doc.expr]));
+    } catch (err) {
+      return errResult(err, 'DB');
+    }
+  }
+  
+}
+
+
+failing 9 ^
+
+--------------------------------------------
+--------------------------------------------
+--------------------------------------------
+
+
+import { Result, okResult, errResult } from 'cs544-js-utils';
+import * as mongo from 'mongodb';
 
 /** All that this DAO should do is maintain a persistent map from
  *  [spreadsheetName, cellId] to an expression string.
@@ -14,9 +126,11 @@ export async function makeSpreadsheetDao(mongodbUrl: string, ssName: string): Pr
     const daoResult = await SpreadsheetDao.make(mongodbUrl, ssName);
     return daoResult;
   } catch (error) {
-    return errResult('DB',  'DB');
+    return errResult('DB', error.message); // Use error.message as the error code
   }
 }
+
+
 
 export class SpreadsheetDao {
   private spreadsheetName: string;
@@ -32,10 +146,9 @@ export class SpreadsheetDao {
       const dao = new SpreadsheetDao(ssName, collection, client);
       return okResult(dao);
     } catch (error) {
-      return errResult('DB', 'DB');
+      return errResult('DB', error);
     }
   }
-
 
   private constructor(spreadsheetName: string, collection: mongo.Collection<any>, client: mongo.MongoClient) {
     this.spreadsheetName = spreadsheetName;
@@ -118,3 +231,8 @@ export class SpreadsheetDao {
     }
   }
 }
+
+
+failing 1^
+---------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------
