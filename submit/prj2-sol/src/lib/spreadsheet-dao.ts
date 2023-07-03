@@ -18,6 +18,8 @@ export async function makeSpreadsheetDao(mongodbUrl: string, ssName: string): Pr
   }
 }
 
+// returning the error "DB" with the message DB as asked
+
 export class SpreadsheetDao {
   private spreadsheetName: string;
   private collection: mongo.Collection<any>;
