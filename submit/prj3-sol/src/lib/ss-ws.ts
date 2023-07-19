@@ -44,7 +44,7 @@ function setupRoutes(app: Express.Application) {
   //TODO  
   app.get(`${base}/:ssName/:cellId`, makeGetCellHandler(app));
   app.patch(`${base}/:ssName/:cellId`, makeSetCellHandler(app));
-  app.patch(`${base}/:ssName/:cellId`, makeSetCellHandler(app));
+  app.patch(`${base}/:ssName/:cellId`, makeCopyCellHandler(app));
   app.delete(`${base}/:ssName/:cellId`, makeDeleteCellHandler(app));
   
   //routes for entire spreadsheets
@@ -167,6 +167,50 @@ function makeSetCellHandler(app: Express.Application) {
   };
 }
 
+function makeCopyCellHandler(app: Express.Application) {
+  return async function (req: Request, res: Response) {
+    try {
+      const ssName = req.params.ssName;
+      const cellId = req.params.cellId;
+      const expr = req.query.expr;
+      const srcCellId = req.query.srcCellId;
+
+      if (expr && srcCellId) {
+        throw {
+          status: STATUS.BAD_REQUEST,
+          errors: [{ options: { code: 'BAD_REQ' }, message: 'Only one query parameter (expr or srcCellId) is allowed' }],
+        };
+      } else if (!expr && !srcCellId) {
+        throw {
+          status: STATUS.BAD_REQUEST,
+          errors: [{ options: { code: 'BAD_REQ' }, message: 'At least one query parameter (expr or srcCellId) is required' }],
+        };
+      }
+
+      let setCellResult;
+      if (expr) {
+        setCellResult = await app.locals.ssServices.evaluate(ssName, cellId, expr);
+      } else {
+        setCellResult = await app.locals.ssServices.copy(ssName, cellId, srcCellId);
+      }
+
+      if (!setCellResult.isOk) {
+        throw setCellResult;
+      }
+
+      const response: SuccessEnvelope<{ [cellId: string]: number }> = {
+        isOk: true,
+        status: STATUS.OK,
+        links: { self: { href: req.originalUrl, method: 'PATCH' } },
+        result: setCellResult.val,
+      };
+      res.status(STATUS.OK).json(response);
+    } catch (err) {
+      const mapped = mapResultErrors(err);
+      res.status(mapped.status).json(mapped);
+    }
+  };
+}
 
 
 
