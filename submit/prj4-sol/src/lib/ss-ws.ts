@@ -110,11 +110,143 @@ function makeURL(url: string, queryParams: Record<string, string|number> = {}) {
  *    + If there are no errors then the function should return the
  *      response result within an ok Result.
  */
-async function doFetchJson<T>(method: string, url: URL,
-			      jsonBody?: object)
-  : Promise<Result<T>> 
-{
-  //TODO
-  return okResult('TODO' as any);
-}
+
+
+async function doFetchJson<T>(
+  method: string,
+  url: URL,
+  jsonBody?: object
+): Promise<Result<T>> {
+  try {
+    // Prepare fetch options based on the method and JSON body if provided
+    const fetchOptions: RequestInit = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonBody ? JSON.stringify(jsonBody) : undefined,
+    };
+
+    // Make the fetch request
+    const response = await fetch(url.toString(), fetchOptions);
+
+    // Parse the response JSON
+    const responseData = await response.json();
+
+    // Check if the response is an error
+    if (!response.ok || responseData.isOk === false) {
+      const errors = responseData.errors.map((error: { message: string }) => error.message);
+      return errResult(errors.join(', '));
+    }
+
+    // If the response is successful, return the result
+    return okResult(responseData.result);
+  } catch (error) {
+    // Handle any fetch errors
+    return errResult('Fetch error: ' + error.message);
+  }
+} 
+
+// async function doFetchJson<T>(
+//   method: string,
+//   url: URL,
+//   jsonBody?: object
+// ): Promise<Result<T>> {
+//   try {
+//     // Prepare fetch options based on the method and JSON body if provided
+//     const fetchOptions: RequestInit = {
+//       method,
+//       headers: {
+//         'Content-Type': 'application/json',
+//       },
+//       body: jsonBody ? JSON.stringify(jsonBody) : undefined,
+//     };
+
+//     // Make the fetch request
+//     const response = await fetch(url.toString(), fetchOptions);
+
+//     // Parse the response JSON
+//     const responseData = await response.json();
+
+//     // Check if the response is an error
+//     if (!response.ok || responseData.isOk === false) {
+//       const errors = responseData.errors.map((error: { message: string }) => error.message);
+//       return errResult(errors.join(', '));
+//     }
+
+//     // If the response is successful, return the result
+//     return okResult(responseData.result);
+
+    
+
+//   } catch (error) {
+//     // Handle any fetch errors
+//     return errResult('Fetch error: ' + error.message);
+//   }
+
+
+
+// }
+
+// // Define a variable to store the errors
+// let previousErrors: string[] = [];
+
+// // Define a function to clear the errors
+// function clearErrors(): void {
+//   previousErrors = [];
+// }
+
+// async function doFetchJson<T>(
+//   method: string,
+//   url: URL,
+//   jsonBody?: object
+// ): Promise<Result<T>> {
+//   try {
+//     // Clear previous errors before making the fetch
+//     clearErrors();
+
+//     // Prepare fetch options based on the method and JSON body if provided
+//     const fetchOptions: RequestInit = {
+//       method,
+//       headers: {
+//         'Content-Type': 'application/json',
+//       },
+//       body: jsonBody ? JSON.stringify(jsonBody) : undefined,
+//     };
+
+//     // Make the fetch request
+//     const response = await fetch(url.toString(), fetchOptions);
+
+//     // Parse the response JSON
+//     const responseData = await response.json();
+
+//     // Check if the response is an error
+//     if (!response.ok || responseData.isOk === false) {
+//       const errors = responseData.errors.map((error: { message: string }) => error.message);
+//       // Store errors temporarily for later reference
+//       previousErrors = errors;
+//       return errResult(errors.join(', '));
+//     }
+
+//     // If the response is successful, return the result and clear previous errors
+//     const result = okResult(responseData.result);
+//     clearErrors();
+//     return result;
+
+//   } catch (error) {
+//     // Handle any fetch errors
+//     // Store errors temporarily for later reference
+//     previousErrors = [`Fetch error: ${error.message}`];
+//     return errResult(previousErrors.join(', '));
+//   }
+// }
+
+// // Function to get and clear previous errors
+// function getAndClearPreviousErrors(): string[] {
+//   const errors = previousErrors;
+//   clearErrors();
+//   return errors;
+// }
+
+
 

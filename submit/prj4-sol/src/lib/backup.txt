@@ -1,0 +1,801 @@
+import SpreadsheetWs from './ss-ws.js';
+
+import { Result, okResult, errResult } from 'cs544-js-utils';
+
+import { Errors, makeElement } from './utils.js';
+
+const [N_ROWS, N_COLS] = [10, 10];
+
+export default async function make(ws: SpreadsheetWs, ssName: string) {
+  return await Spreadsheet.make(ws, ssName);
+}
+
+
+class Spreadsheet {
+
+  private readonly ws: SpreadsheetWs;
+  private readonly ssName: string;
+  private readonly errors: Errors;
+  //TODO: add more instance variables
+
+  private focusedCellId: string | null = null;
+  private copySourceCellId: string | null = null;
+  private copySourceExpr: string | null = null;
+  
+  
+  constructor(ws: SpreadsheetWs, ssName: string) {
+    this.ws = ws; this.ssName = ssName;
+    this.errors = new Errors();
+    this.makeEmptySS();
+    this.addListeners();
+    //TODO: initialize added instance variables
+
+    this.load();
+
+
+  }
+
+  static async make(ws: SpreadsheetWs, ssName: string) {
+    const ss = new Spreadsheet(ws, ssName);
+    await ss.load();
+    return ss;
+  }
+
+  /** add listeners for different events on table elements */
+  private addListeners() {
+    const clearButton = document.querySelector('#clear');
+    if(clearButton) {
+      clearButton.addEventListener('click', this.clearSpreadsheet);
+    }
+
+    //TODO: add listeners for #clear and .cell
+    const cells = document.querySelectorAll('.cell');
+    cells.forEach(cell => {
+    cell.addEventListener('focus', this.focusCell);
+    cell.addEventListener('blur', this.blurCell);
+    cell.addEventListener('copy', this.copyCell);
+    cell.addEventListener('paste', this.pasteCell);
+  });
+  }
+
+ 
+
+private async load() {
+   /** load initial spreadsheet data into DOM */
+    const result = await this.ws.dump(this.ssName);
+    if (result.isOk) {
+      const cells = document.querySelectorAll('.cell');
+      cells.forEach(cell => {
+        cell.textContent = '';
+        cell.removeAttribute('data-value');
+        cell.removeAttribute('data-expr');
+      });
+      result.val.forEach(([cellId, expr]) => {
+        const cell = document.querySelector(`#${cellId}`);
+        if (cell) {
+          cell.setAttribute('data-expr', expr);
+          cell.textContent = expr;
+        }
+      });
+    } else {
+      this.errors.display(result.errors);
+    }
+} 
+
+  /** listener for a click event on #clear button */
+  private readonly clearSpreadsheet = async (ev: Event) => {
+    ev.preventDefault();
+    const result = await this.ws.clear(this.ssName);
+    if (result.isOk) {
+      const cells = document.querySelectorAll('.cell');
+      cells.forEach(cell => {
+        cell.textContent = '';
+        cell.removeAttribute('data-value');
+        cell.removeAttribute('data-expr');
+      });
+    } else {
+      this.errors.display(result.errors);
+    }
+  };
+  
+
+ private readonly focusCell = (ev: Event) => {
+  const cell = ev.target as HTMLElement;
+  this.focusedCellId = cell.id;
+  cell.textContent = cell.getAttribute('data-expr') || '';
+};
+
+
+
+
+
+  /** listener for a focus event on a spreadsheet data cell */
+  // private readonly focusCell = (ev: Event) => {
+    
+  //   const cell = ev.target as HTMLElement;
+  //   const cellId = cell.id;
+  //   if (cellId !== this.focusedCellId) {
+  //     this.focusedCellId = cellId;
+  //     const expr = cell.getAttribute('data-expr');
+  //     if (expr) {
+  //       cell.textContent = expr;
+  //     }
+  //   }
+
+  // };
+  
+  private readonly blurCell = async (ev: Event) => {
+    const cell = ev.target as HTMLElement;
+    const expr = cell.textContent?.trim() || '';
+    cell.setAttribute('data-expr', expr);
+    this.focusedCellId = null;
+
+    
+    let result: Result<{ [cellId: string]: number }>;
+    if (expr === '') {
+      result = await this.ws.remove(this.ssName, cell.id);
+    } else {
+      result = await this.ws.evaluate(this.ssName, cell.id, expr);
+    }
+
+    if (result.isOk) {
+      Object.entries(result.val).forEach(([cellId, value]) => {
+        if (cellId !== this.focusedCellId) {
+          const cell = document.querySelector(`#${cellId}`);
+          if (cell) {
+            cell.setAttribute('data-value', value.toString());
+            cell.textContent = value.toString();
+          }
+        }
+      });
+    } else {
+      this.errors.display(result.errors);
+    }
+  };  
+
+  /** listener for a blur event on a spreadsheet data cell */
+  // private readonly blurCell = async (ev: Event) => {
+  //   //TODO
+  // };
+  
+  /** listener for a copy event on a spreadsheet data cell */
+  // private readonly copyCell = (ev: Event) => {
+  //   //TODO
+  // };
+
+  private copyCell = (ev: Event) => {
+    const cell = ev.target as HTMLElement;
+    this.copySourceCellId = cell.id;
+    this.copySourceExpr = cell.getAttribute('data-expr') || '';
+    cell.classList.add('is-copy-source');
+  };
+
+  /** listener for a paste event on a spreadsheet data cell */
+  // private readonly pasteCell = async (ev: Event) => {
+  //   //TODO
+  // };
+
+   private pasteCell = async (ev: ClipboardEvent) => {
+    const cell = ev.target as HTMLElement;
+    const destCellId = cell.id;
+    const srcCellId = this.copySourceCellId;
+    const srcExpr = this.copySourceExpr;
+
+    if (srcCellId && srcExpr) {
+      const result = await this.ws.copy(this.ssName, destCellId, srcCellId);
+      if (result.isOk) {
+        Object.entries(result.val).forEach(([cellId, value]) => {
+          const cell = document.querySelector(`#${cellId}`);
+          if (cell) {
+            cell.setAttribute('data-value', value.toString());
+            cell.textContent = value.toString();
+          }
+        });
+      } else {
+        this.errors.display(result.errors);
+      }
+    }
+
+    this.copySourceCellId = null;
+    this.copySourceExpr = null;
+    const copySourceCell = document.querySelector(`#${srcCellId}`);
+    if (copySourceCell) {
+      copySourceCell.classList.remove('is-copy-source');
+    }
+    ev.preventDefault();
+  };
+
+
+  /** Replace entire spreadsheet with that from the web services.
+   *  Specifically, for each active cell set its data-value and 
+   *  data-expr attributes to the corresponding values returned
+   *  by the web service and set its text content to the cell value.
+   */
+  /** load initial spreadsheet data into DOM */
+  // private async load() {
+  //   //TODO
+    
+  // }
+
+  
+  private makeEmptySS() {
+    const ssDiv = document.querySelector('#ss')!;
+    ssDiv.innerHTML = '';
+    const ssTable = makeElement('table');
+    const header = makeElement('tr');
+    const clearCell = makeElement('td');
+    const clear = makeElement('button', {id: 'clear', type: 'button'}, 'Clear');
+    clearCell.append(clear);
+    header.append(clearCell);
+    const A = 'A'.charCodeAt(0);
+    for (let i = 0; i < N_COLS; i++) {
+      header.append(makeElement('th', {}, String.fromCharCode(A + i)));
+    }
+    ssTable.append(header);
+    for (let i = 0; i < N_ROWS; i++) {
+      const row = makeElement('tr');
+      row.append(makeElement('th', {}, (i + 1).toString()));
+      const a = 'a'.charCodeAt(0);
+      for (let j = 0; j < N_COLS; j++) {
+	const colId = String.fromCharCode(a + j);
+	const id = colId + (i + 1);
+	const cell =
+	  makeElement('td', {id, class: 'cell', contentEditable: 'true'});
+	row.append(cell);
+      }
+      ssTable.append(row);
+    }
+    ssDiv.append(ssTable);
+  }
+
+}
+
+
+
+/////////////////////////////
+import { Err, ErrResult, Result, okResult, errResult } from 'cs544-js-utils';
+
+type Updates = { [cellId: string]: number };
+
+export default class SpreadsheetWs {
+  private readonly apiUrl: string;
+
+  private constructor(url: string) { this.apiUrl = `${url}/api`; }
+
+  static make(url: string)  {
+    return new SpreadsheetWs(url);
+  }
+
+  /** return { expr, value } object for cell cellId in 
+   *  spreadsheet ssName.
+   */
+  async query(ssName: string, cellId: string)
+  : Promise<Result<{ value: number, expr: string}>>
+  {
+    const url = makeURL(`${this.apiUrl}/${ssName}/${cellId}`);
+    return await doFetchJson('GET', url);
+  }
+
+  /** remove formula for cell cellId in spreadsheet ssName.
+   *  Return Updates object mapping cellId's to the updated value.
+   */
+  async remove(ssName: string, cellId: string) : Promise<Result<Updates>>
+  {
+    const url = makeURL(`${this.apiUrl}/${ssName}/${cellId}`);
+    return await doFetchJson('DELETE', url);
+  }
+
+
+  /** copy formula from cell srcCellId in spreadsheet ssName to
+   *  cell destCellId.  Update relative references in the formula.
+   *  If the formula is empty, then delete cell destCellId.
+   *  Return Updates object mapping cellId's to the updated value.
+   */
+  async copy(ssName: string, destCellId: string, srcCellId: string)
+    : Promise<Result<Updates>>
+  {
+    const url = makeURL(`${this.apiUrl}/${ssName}/${destCellId}`, {srcCellId});
+    return await doFetchJson('PATCH', url);
+  }
+
+  /** set formula for cell cellId in spreadsheet ssName to expr.
+   *  Return Updates object mapping cellId's to the updated value.
+   */
+  async evaluate(ssName: string, cellId: string, expr: string)
+  : Promise<Result<Updates>>
+  {
+    const url = makeURL(`${this.apiUrl}/${ssName}/${cellId}`, {expr});
+    return await doFetchJson('PATCH', url)!;
+  }
+
+  /** return list of [cellId, expr] pairs for spreadsheet ssName */
+  async dump(ssName: string) : Promise<Result<[string, string][]>>
+  {
+    const url = makeURL(`${this.apiUrl}/${ssName}`);
+    return await doFetchJson('GET', url);
+  }
+
+  /** return list of [cellId, expr, value] triples for spreadsheet ssName */
+  async dumpWithValues(ssName: string)
+    : Promise<Result<[string, string, number][]>>
+  {
+    const url = makeURL(`${this.apiUrl}/${ssName}`, {doValues: 'true'});
+    return await doFetchJson('GET', url);
+  }
+
+  /** load spreadsheet ssName with dump of list of [ cellId, expr ]. */
+  async load(ssName: string, dump: [string, string][])
+  : Promise<Result<undefined>>
+  {
+    const url = makeURL(`${this.apiUrl}/${ssName}`);
+    return await doFetchJson('PUT', url, dump);
+  }
+
+  /** clear out all contents of spreadsheet ssName */
+  async clear(ssName: string)
+  : Promise<Result<undefined>> 
+  {
+    const url = makeURL(`${this.apiUrl}/${ssName}`);
+    return await doFetchJson('DELETE', url);
+  }
+
+}
+
+/** A utility function used to extend a url with properly encoded 
+ *  query parameters
+ */
+function makeURL(url: string, queryParams: Record<string, string|number> = {}) {
+  const urlObj = new URL(url);
+  Object.entries(queryParams).forEach(([k, v]) => {
+    urlObj.searchParams.append(k, v.toString())
+  });
+  return urlObj;
+}
+
+/** Return a Result for dispatching HTTP method to url.  If jsonBody
+ *  is specified, then it should be sent as the JSONrequest body
+ *  (along with a suitable MIME-type).
+ *  
+ *  This function should convert the response envelope used for
+ *  the web services into a Result.  Specifically: 
+ *
+ *    + The response should return an error Result if there is a fetch
+ *      error or if the response JSON contains errors.
+ *
+ *    + If there are no errors then the function should return the
+ *      response result within an ok Result.
+ */
+
+
+// async function doFetchJson<T>(
+//   method: string,
+//   url: URL,
+//   jsonBody?: object
+// ): Promise<Result<T>> {
+//   try {
+//     // Prepare fetch options based on the method and JSON body if provided
+//     const fetchOptions: RequestInit = {
+//       method,
+//       headers: {
+//         'Content-Type': 'application/json',
+//       },
+//       body: jsonBody ? JSON.stringify(jsonBody) : undefined,
+//     };
+
+//     // Make the fetch request
+//     const response = await fetch(url.toString(), fetchOptions);
+
+//     // Parse the response JSON
+//     const responseData = await response.json();
+
+//     // Check if the response is an error
+//     if (!response.ok || responseData.isOk === false) {
+//       const errors = responseData.errors.map((error: { message: string }) => error.message);
+//       return errResult(errors.join(', '));
+//     }
+
+//     // If the response is successful, return the result
+//     return okResult(responseData.result);
+//   } catch (error) {
+//     // Handle any fetch errors
+//     return errResult('Fetch error: ' + error.message);
+//   }
+// } 
+
+// async function doFetchJson<T>(
+//   method: string,
+//   url: URL,
+//   jsonBody?: object
+// ): Promise<Result<T>> {
+//   try {
+//     // Prepare fetch options based on the method and JSON body if provided
+//     const fetchOptions: RequestInit = {
+//       method,
+//       headers: {
+//         'Content-Type': 'application/json',
+//       },
+//       body: jsonBody ? JSON.stringify(jsonBody) : undefined,
+//     };
+
+//     // Make the fetch request
+//     const response = await fetch(url.toString(), fetchOptions);
+
+//     // Parse the response JSON
+//     const responseData = await response.json();
+
+//     // Check if the response is an error
+//     if (!response.ok || responseData.isOk === false) {
+//       const errors = responseData.errors.map((error: { message: string }) => error.message);
+//       return errResult(errors.join(', '));
+//     }
+
+//     // If the response is successful, return the result
+//     return okResult(responseData.result);
+
+    
+
+//   } catch (error) {
+//     // Handle any fetch errors
+//     return errResult('Fetch error: ' + error.message);
+//   }
+
+
+
+// }
+
+let previousErrors: string[] = []; // A variable to store previous errors
+
+async function doFetchJson<T>(
+  method: string,
+  url: URL,
+  jsonBody?: object
+): Promise<Result<T>> {
+  try {
+    // Prepare fetch options based on the method and JSON body if provided
+    const fetchOptions: RequestInit = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonBody ? JSON.stringify(jsonBody) : undefined,
+    };
+
+    // Make the fetch request
+    const response = await fetch(url.toString(), fetchOptions);
+
+    // Check if the response is successful
+    if (!response.ok) {
+      previousErrors = ['Server Error: ' + response.status + ' ' + response.statusText]; // Save the server error for the next action
+      return errResult(previousErrors.join(', '));
+    }
+
+    // Parse the response JSON
+    const responseData = await response.json();
+
+    // Check if the response is an error from the server
+    if (responseData.isOk === false) {
+      const errors = responseData.errors.map((error: { message: string }) => error.message);
+      previousErrors = errors; // Save the server errors for the next action
+      return errResult(errors.join(', '));
+    }
+
+    // If the response is successful, return the result
+    return okResult(responseData.result);
+  } catch (error) {
+    // Handle any fetch errors
+    previousErrors = ['Fetch error: ' + error.message]; // Save the fetch error for the next action
+    return errResult(previousErrors.join(', '));
+  }
+}
+
+function clearErrors() {
+  previousErrors = [];
+}
+
+
+
+
+
+
+/////////////////////////////////// fetch
+
+
+// let previousErrors: string[] = []; // A variable to store previous errors
+
+// async function doFetchJson<T>(
+//   method: string,
+//   url: URL,
+//   jsonBody?: object
+// ): Promise<Result<T>> {
+//   try {
+//     // Prepare fetch options based on the method and JSON body if provided
+//     const fetchOptions: RequestInit = {
+//       method,
+//       headers: {
+//         'Content-Type': 'application/json',
+//       },
+//       body: jsonBody ? JSON.stringify(jsonBody) : undefined,
+//     };
+
+//     // Make the fetch request
+//     const response = await fetch(url.toString(), fetchOptions);
+
+//     // Check if the response is successful
+//     if (!response.ok) {
+//       previousErrors = ['Server Error: ' + response.status + ' ' + response.statusText]; // Save the server error for the next action
+//       return errResult(previousErrors.join(', '));
+//     }
+
+//     // Parse the response JSON
+//     const responseData = await response.json();
+
+//     // Check if the response is an error from the server
+//     if (responseData.isOk === false) {
+//       const errors = responseData.errors.map((error: { message: string }) => error.message);
+//       previousErrors = errors; // Save the server errors for the next action
+//       return errResult(errors.join(', '));
+//     }
+
+//     // If the response is successful, return the result
+//     return okResult(responseData.result);
+//   } catch (error) {
+//     // Handle any fetch errors
+//     previousErrors = ['Fetch error: ' + error.message]; // Save the fetch error for the next action
+//     return errResult(previousErrors.join(', '));
+//   }
+// }
+
+// function clearErrors() {
+//   previousErrors = [];
+// }
+
+///////////////////////////////////////////////////////////////////
+
+import SpreadsheetWs from './ss-ws.js';
+
+import { Result, okResult, errResult } from 'cs544-js-utils';
+
+import { Errors, makeElement } from './utils.js';
+
+const [N_ROWS, N_COLS] = [10, 10];
+
+export default async function make(ws: SpreadsheetWs, ssName: string) {
+  return await Spreadsheet.make(ws, ssName);
+}
+
+
+class Spreadsheet {
+
+  private readonly ws: SpreadsheetWs;
+  private readonly ssName: string;
+  private readonly errors: Errors;
+  //TODO: add more instance variables
+
+  private previousErrors: string[] = [];
+
+  private focusedCellId: string | null = null;
+  private copySourceCellId: string | null = null;
+  private copySourceExpr: string | null = null;
+  
+  
+  constructor(ws: SpreadsheetWs, ssName: string) {
+    this.ws = ws; this.ssName = ssName;
+    this.errors = new Errors();
+    this.makeEmptySS();
+    this.addListeners();
+    //TODO: initialize added instance variables
+
+    this.load();
+
+
+  }
+
+  static async make(ws: SpreadsheetWs, ssName: string) {
+    const ss = new Spreadsheet(ws, ssName);
+    await ss.load();
+    return ss;
+  }
+
+  /** add listeners for different events on table elements */
+  private addListeners() {
+    const clearButton = document.querySelector('#clear');
+    if(clearButton) {
+      clearButton.addEventListener('click', this.clearSpreadsheet);
+    }
+
+    //TODO: add listeners for #clear and .cell
+    const cells = document.querySelectorAll('.cell');
+    cells.forEach(cell => {
+    cell.addEventListener('focus', this.focusCell);
+    cell.addEventListener('blur', this.blurCell);
+    cell.addEventListener('copy', this.copyCell);
+    cell.addEventListener('paste', this.pasteCell);
+  });
+  }
+
+ 
+
+private async load() {
+   /** load initial spreadsheet data into DOM */
+    const result = await this.ws.dump(this.ssName);
+    if (result.isOk) {
+      const cells = document.querySelectorAll('.cell');
+      cells.forEach(cell => {
+        cell.textContent = '';
+        cell.removeAttribute('data-value');
+        cell.removeAttribute('data-expr');
+      });
+      result.val.forEach(([cellId, expr]) => {
+        const cell = document.querySelector(`#${cellId}`);
+        if (cell) {
+          cell.setAttribute('data-expr', expr);
+          cell.textContent = expr;
+        }
+      });
+    } else {
+      // this.errors.display(result.errors);
+      this.clearPreviousErrors();
+      this.errors.display(result.errors);
+      // Store the new errors as previous errors
+      this.previousErrors = result.errors.map(err => err.toString());
+
+
+    }
+} 
+
+private clearPreviousErrors() {
+  this.previousErrors = [];
+}
+
+  /** listener for a click event on #clear button */
+  private readonly clearSpreadsheet = async (ev: Event) => {
+    ev.preventDefault();
+    const result = await this.ws.clear(this.ssName);
+    if (result.isOk) {
+      const cells = document.querySelectorAll('.cell');
+      cells.forEach(cell => {
+        cell.textContent = '';
+        cell.removeAttribute('data-value');
+        cell.removeAttribute('data-expr');
+      });
+    } else {
+      this.errors.display(result.errors);
+    }
+  };
+  
+
+ private readonly focusCell = (ev: Event) => {
+  const cell = ev.target as HTMLElement;
+  this.focusedCellId = cell.id;
+  cell.textContent = cell.getAttribute('data-expr') || '';
+};
+  
+private readonly blurCell = async (ev: Event) => {
+  const cell = ev.target as HTMLElement;
+  const expr = cell.textContent?.trim() || '';
+  cell.setAttribute('data-expr', expr);
+  this.focusedCellId = null;
+
+  // Clear previously displayed errors
+  this.errors.clear();
+
+  let result: Result<{ [cellId: string]: number }>;
+  if (expr === '') {
+    result = await this.ws.remove(this.ssName, cell.id);
+  } else {
+    result = await this.ws.evaluate(this.ssName, cell.id, expr);
+  }
+
+  if (result.isOk) {
+    // Clear errors again after a successful fetch response
+    this.errors.clear();
+
+    Object.entries(result.val).forEach(([cellId, value]) => {
+      if (cellId !== this.focusedCellId) {
+        const cell = document.querySelector(`#${cellId}`);
+        if (cell) {
+          cell.setAttribute('data-value', value.toString());
+          cell.textContent = value.toString();
+        }
+      }
+    });
+  } else {
+    this.errors.display(result.errors);
+  }
+};
+
+
+   private copyCell = (ev: Event) => {
+    const cell = ev.target as HTMLElement;
+    this.copySourceCellId = cell.id;
+    this.copySourceExpr = cell.getAttribute('data-expr') || '';
+    cell.classList.add('is-copy-source');
+  };
+
+  private pasteCell = (ev: ClipboardEvent) => {
+    const cell = ev.target as HTMLElement;
+    const destCellId = cell.id;
+    const srcCellId = this.copySourceCellId;
+    const srcExpr = this.copySourceExpr;
+  
+    if (srcCellId && srcExpr) {
+      const copySourceCell = document.querySelector(`#${srcCellId}`);
+      if (copySourceCell) {
+        const srcDataExpr = copySourceCell.getAttribute('data-expr');
+        const srcDataValue = copySourceCell.getAttribute('data-value');
+  
+        if (srcDataExpr !== null && srcDataValue !== null) {
+          // Copy data-expr and data-value attributes from the source cell
+          cell.setAttribute('data-expr', srcDataExpr);
+          cell.setAttribute('data-value', srcDataValue);
+  
+          // Get destination cell coordinates (row and column) from the cell id
+          const [destCol, destRow] = this.getCellCoordinates(destCellId);
+  
+          // Get source cell coordinates (row and column) from the cell id
+          const [srcCol, srcRow] = this.getCellCoordinates(srcCellId);
+  
+          // Calculate the offset between the source and destination rows and columns
+          const colOffset = destCol.charCodeAt(0) - srcCol.charCodeAt(0);
+          const rowOffset = Number(destRow) - Number(srcRow);
+  
+          // Replace cell references in the expression with updated coordinates
+          const updatedExpr = srcDataExpr.replace(/[a-zA-Z]+\d+/g, (match) => {
+            const [col, row] = this.getCellCoordinates(match);
+            const updatedCol = String.fromCharCode(col.charCodeAt(0) + colOffset);
+            const updatedRow = (Number(row) + rowOffset).toString();
+            return updatedCol + updatedRow;
+          });
+  
+          cell.textContent = updatedExpr;
+        }
+      }
+    }
+  
+    this.copySourceCellId = null;
+    this.copySourceExpr = null;
+    const copySourceCell = document.querySelector(`#${srcCellId}`);
+    if (copySourceCell) {
+      copySourceCell.classList.remove('is-copy-source');
+    }
+    ev.preventDefault();
+  };
+  
+  private getCellCoordinates(cellId: string): [string, string] {
+    const col = cellId.match(/[a-zA-Z]+/)?.[0] || '';
+    const row = cellId.match(/\d+/)?.[0] || '';
+    return [col, row];
+  }
+
+  
+  private makeEmptySS() {
+    const ssDiv = document.querySelector('#ss')!;
+    ssDiv.innerHTML = '';
+    const ssTable = makeElement('table');
+    const header = makeElement('tr');
+    const clearCell = makeElement('td');
+    const clear = makeElement('button', {id: 'clear', type: 'button'}, 'Clear');
+    clearCell.append(clear);
+    header.append(clearCell);
+    const A = 'A'.charCodeAt(0);
+    for (let i = 0; i < N_COLS; i++) {
+      header.append(makeElement('th', {}, String.fromCharCode(A + i)));
+    }
+    ssTable.append(header);
+    for (let i = 0; i < N_ROWS; i++) {
+      const row = makeElement('tr');
+      row.append(makeElement('th', {}, (i + 1).toString()));
+      const a = 'a'.charCodeAt(0);
+      for (let j = 0; j < N_COLS; j++) {
+	const colId = String.fromCharCode(a + j);
+	const id = colId + (i + 1);
+	const cell =
+	  makeElement('td', {id, class: 'cell', contentEditable: 'true'});
+	row.append(cell);
+      }
+      ssTable.append(row);
+    }
+    ssDiv.append(ssTable);
+  }
+
+}
