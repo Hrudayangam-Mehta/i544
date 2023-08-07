@@ -1,0 +1,298 @@
+  		      P r o j e c t   5
+
+
+*Due*: Aug 11, before midnight.  *No late submissions*.
+
+*Important Reminder*: As per the course .<../../misc/academic-honesty/academic-honesty-policy.html> "Academic Honesty Statement",
+cheating of any kind will minimally result in your letter grade
+for the entire course being reduced by one level.
+
+This document first describes the aims of this project followed by a
+brief overview.  It then lists the requirements as explicitly as
+possible.  It discusses alternatives for the design.
+Finally, it provides some hints as to how the project requirements can
+be met.
+
+
+
+			Aims
+			====
+
+The aims of this project are as follows:
+
+  + To expose you to using .<https://react.dev> React.
+    
+  + To allow you to choose among several program designs or come up
+    with one of your own.
+
+  + To give you confidence in your ability to implement a program from
+    scratch without any starter code.
+
+%%%
+			Overall Architecture
+			====================
+
+Just as in your previous project, this project will require you to
+interact with the three programs shown in the following block diagram:
+
+.image(src="figs/arch.png", width="400")
+
+The project involves two servers:
+
+  + A server which implements web services for spreadsheets.  This is
+    the server you essentially implemented in
+    .<projects/prj3/prj3.html> "Project 3".  You can use the already
+    running server on .<https://zdu.binghamton.edu:2345> "" or deploy
+    your own server using the .<../prj3-sol> "Project 3 solution"
+    running on `https://localhost:2345`.
+
+  + A development server run by the .<https://parceljs.org/> "parcel
+    bundler" on port 2346 which makes it possible to load all your
+    project files into a browser.  Note that this server is not used
+    once the project has been loaded into your browser, making the
+    project a .<https://developer.mozilla.org/en-US/docs/Glossary/SPA>
+    "Single-Page App".
+
+All the code you implement in this project will run entirely within a
+browser (typically running on your VM).  The JavaScript code will be
+loaded into the browser from the parcel server.  Once loaded into the
+browser, this code will make direct requests to the web services
+server using the
+.<https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch>
+fetch API.
+%%%
+
+			Requirements
+			============
+
+You must push a `submit/prj5-sol` directory to your github repository
+such that typing `npm ci` within that directory followed by `tsc` and
+`npm start` will start a web server on `localhost` at port 2346.  This
+server should provide access to a *single-page app* which should allow
+displaying spreadsheets.
+
+The app should render a spreadsheet with the same UI and UX as your
+previous project (the image below was captured with cell `d1`
+focused):
+
+.image(src="figs/view.png", width="500")
+
+
+The operation of the app is same as in your previous project which was
+illustrated in this
+.<https://binghamton.zoom.us/rec/share/SpcxsFRvqb4lqflDFEjzxhdTe2xvMDrVZdD49JqKfeGOJ6DA5ZPAladjjTaHxtuN.KwZW-z1rnYCzqlX0?startTime=1689618509000>
+video.
+
+The major difference in the requirements from those in your previous
+project is that *all* the spreadsheet functionality using *hooks-based
+functional React components implemented using TypeScript*.  You may
+continue to use the DOM API for displaying errors and for setting up
+the initial form used to provide the web service URL and spreadsheet
+name.
+
+To facilitate possible automated grading, widgets are required to have
+attributes as follows:
+
+  + The form for specifying the web services URL and spreadsheet name
+    must have `id` attribute `ss-form`.
+
+  + The widget for specifying the web services URL must have `id`
+    attribute `ws-url`.
+
+  + The widget for specifying the spreadsheet name must have `id`
+    attribute `ss-name`.
+
+  + The button for clearing the spreadsheet must have `id` attribute
+    `clear`.
+
+  + The widget used for changing a cell must have an `id` attribute
+    equal to the cell ID, like `a1`, `b2`, etc.
+
+  + Each cell widget must have a `data-is-focused` attribute which
+    should be `"true"` iff the cell has focus.
+
+			Design Considerations
+			=====================
+
+Here are some thoughts about the design of this project.
+
+			  React Components
+			  ----------------
+
+Most designs would identify the following three React components:
+
+  + `Cell`: Represents an individual spreadsheet cell.  
+
+  + `Spreadsheet`: Represents an entire spreadsheet.  It would be
+     rendered as a table of `Cell` components.
+
+  + `Clear`: Represents the clear widget.
+
+
+                          Local Spreadsheet Representation
+			  --------------------------------
+
+In the previous project, we stored the spreadsheet data (both
+expressions and values) as attributes within the DOM.  Doing so
+for this project would not be in keeping with the spirit of the
+requirements that the spreadsheet be implemented using React.
+Possibilities include:
+
+  # .=monolith-repr= A single object having a TS type like:
+
+    .code(lang=ts)
+    ~~~
+    type SpreadsheetData = {
+      [cellId: string]: { expr: string, value: number }
+    };
+    ~~~
+
+    An advantage of this representation is that all spreadsheet data
+    is consolidated together, which may make development easier.  A
+    disadvantage is that all spreadsheet changes could require
+    re-rendering the entire spreadsheet.
+
+  # .=props-repr= Each `Cell` component would have `value` and
+    `expr` props.  This is similar to the distributed representation
+    used in the previous project.
+
+    An advantage of this representation is that it may be possible to
+    implement a local change like focusing a cell entirely within a
+    cell.  A disadvantage would be that any changes in cell props
+    would require re-rendering the entire spreadsheet.  Another
+    disadvantage is that the spreadsheet data would be scattered
+    across all the cells representing the spreadsheet.
+
+
+    	  	       Locations for Web Service Calls
+		       ===============================
+
+Web service calls could be made at:
+
+  # The cell level.
+
+  # The spreadsheet level.
+
+or both.
+
+(1) would require drilling the `ws` prop down all the way to the
+`Cell` component.  Since most spreadsheet operations entail a global
+change to the spreadsheet, (2) appears preferable.  Note that both
+alternatives will require upcalls from the `Cell` to the
+`Spreadsheet` level via callback props.
+
+	      	    	  Cell Structure
+			  ==============
+
+In keeping with React's
+.<https://react.dev/learn/sharing-state-between-components#a-single-source-of-truth-for-each-state>
+"single source of truth" design principal, it seems reasonable that
+each `Cell` have some kind of `content` state which reflects the
+current display of that cell.
+
+  # An unfocused cell would have its `content` state set to the value
+    of the cell.
+
+  # A focused cell would have its `content` state set to the expression
+    for that cell (which may have been partially edited by the user).
+
+    	     	  	Rendering Variations
+			====================
+
+Considering the hierarchical and immutable nature of React components,
+as well as the fact that most spreadsheet operations can affect
+multiple cells, the simplest alternative is to re-render the entire
+spreadsheet after any change.  Of course, React will attempt to
+minimize the amount of work done during this re-render, avoiding any
+unnecessary DOM updates and possibly even re-renders when the content
+of a subtree has not changed.
+
+Since a typical spreadsheet operation will typically update only a
+small portion of the 100 cells in our .$10\times10$ spreadsheet,
+re-rendering all 100 cells seems particularly wasteful.  Fortunately,
+there is an alternative.
+
+  # The Spreadsheet component passes in a registration callback to a
+    descendant cell; passing in this registration callback will
+    require prop drilling.
+      
+
+  # Each cell calls the registration function after the first render
+    (this can be done within an effect with empty dependencies).  In
+    this call, the cell will pass an argument identifying its cell-id
+    as well as an updater function which allows updating selected
+    parts of the cell's state.  This updater function is recorded
+    within some data structure in the spreadsheet component.
+      
+  # When the spreadsheet component finishes its first render, it records
+    the data structure within its state (or a ref).
+
+  # Subsequently, whenever the spreadsheet wishes to update the state
+    of the cell, it simply calls the updater function.
+      
+  
+This pattern allows the spreadsheet to update the state of a descendant
+cell without requiring a re-render of the complete spreadsheet.
+
+
+
+    			    Hints
+			    =====
+
+The following points are worth noting:
+
+  + It is easiest to start this project using your solution to
+    .<../prj4/prj4.html> "Project 4" or the .<../prj4-sol> "provided
+    solution" (the solution link will not be working at the time this
+    project is assigned but should become functional soon after the
+    expiry of the late submission deadline).  You will need to
+    reimplement the code which implements the functionality of the
+    spreadsheet using hooks-based React functional components but can
+    reuse the outer setup code almost without needing to make any
+    changes.
+
+  + React does not play well with content editable content; it is
+    .<https://blixtdev.com/how-to-use-contenteditable-with-react/> possible
+    to overcome these problems, but for this project it may be a good
+    idea to use an `<input>` element instead.
+
+    The previous project used .code(lang=html) "<td
+    contentEditable=""true""></td>" to represent spreadsheet cells.
+    Since this project requires the use of React, it may be easier to
+    replace the use of `contentEditable` with
+    .code(lang=html) "<td><input .../></td>", where the `<input>` widget
+    will hold the current display for a spreadsheet cell.
+
+  + If you decide to reuse the DOM-based UI from .<../prj4/prj4.html>
+    "Project 4" for the form allowing specifying the web service URL
+    and spreadsheet name, then the React app may need to be reloaded
+    whenever the form is reloaded.  This could reload the React app
+    into the same root element which will produce React warnings.
+    These warning can be avoided by first creating a new root element
+    into which the spreadsheet is loaded using code like the following:
+
+    ~~~
+    //static root of spreadsheet in HTML
+    const ss = document.querySelector('#ss')!;
+    ss.innerHTML = '';
+    //create a new root element to avoid warnings
+    const root = document.createElement('div');
+    ss.append(root);
+    //ws and ssName from form submission;
+    //errors instance of Errors from Project 4
+    //Spreadsheet a functional React component
+    const spreadsheet =
+      React.createElement(Spreadsheet, {ws, ssName, errors});
+    ReactDom.createRoot(root).render(spreadsheet);
+    ~~~
+
+  + It is probably best to set up initial code for displaying an empty
+    spreadsheet before you start adding functionality to it.
+
+  + The initial spreadsheet load should be done using an effect which
+    runs when the spreadsheet is first mounted into the DOM.
+
+When submitting, please include a `.gitignore` which ensures that
+built artifacts are not checked in to git.  If using a set up like
+.<../prj4/prj4.html> "Project 4", set up `node_modules`, `dist`, `target`
+and `.parcel-cache` to be ignored.

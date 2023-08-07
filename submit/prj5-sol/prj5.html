@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en-US">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <title>Project  5</title>
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+  <script id="MathJax-script" async
+          src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
+  </script>
+  <script type="text/javascript"
+          src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js">
+  </script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.4.0/styles/github.min.css">
+    <link href="../../assets/styles/article.css" rel="stylesheet" type="text/css" /> 
+</head>
+
+<body class=umt-article>
+    <nav id="course-nav">
+      <ul>
+      </ul>
+    </nav>
+
+    <div class="umt-content">
+      <div><section data-level="h1"><h1>Project  5</h1><p><strong>Due</strong>: Aug 11, before midnight.  <strong>No late submissions</strong>.
+</p><p><strong>Important Reminder</strong>: As per the course  <a href="../../misc/academic-honesty/academic-honesty-policy.html">Academic Honesty Statement</a>,
+cheating of any kind will minimally result in your letter grade
+for the entire course being reduced by one level.
+</p><p>This document first describes the aims of this project followed by a
+brief overview.  It then lists the requirements as explicitly as
+possible.  It discusses alternatives for the design.
+Finally, it provides some hints as to how the project requirements can
+be met.
+</p><section data-level="h2"><h2>Aims</h2><p>The aims of this project are as follows:
+</p><ul><li><p>To expose you to using  <a href="https://react.dev">React.</a>
+</p></li><li><p>To allow you to choose among several program designs or come up
+    with one of your own.
+</p></li><li><p>To give you confidence in your ability to implement a program from
+    scratch without any starter code.
+</p></li></ul></section><section data-level="h2"><h2>Requirements</h2><p>You must push a <code>submit/prj5-sol</code> directory to your github repository
+such that typing <code>npm ci</code> within that directory followed by <code>tsc</code> and
+<code>npm start</code> will start a web server on <code>localhost</code> at port 2346.  This
+server should provide access to a <strong>single-page app</strong> which should allow
+displaying spreadsheets.
+</p><p>The app should render a spreadsheet with the same UI and UX as your
+previous project (the image below was captured with cell <code>d1</code>
+focused):
+</p><p><img src="figs/view.png" width="500">
+</p><p>The operation of the app is same as in your previous project which was
+illustrated in this
+
+<a href="https://binghamton.zoom.us/rec/share/SpcxsFRvqb4lqflDFEjzxhdTe2xvMDrVZdD49JqKfeGOJ6DA5ZPAladjjTaHxtuN.KwZW-z1rnYCzqlX0?startTime=1689618509000">video.</a>
+</p><p>The major difference in the requirements from those in your previous
+project is that <strong>all</strong> the spreadsheet functionality using <strong>hooks-based
+functional React components implemented using TypeScript</strong>.  You may
+continue to use the DOM API for displaying errors and for setting up
+the initial form used to provide the web service URL and spreadsheet
+name.
+</p><p>To facilitate possible automated grading, widgets are required to have
+attributes as follows:
+</p><ul><li><p>The form for specifying the web services URL and spreadsheet name
+    must have <code>id</code> attribute <code>ss-form</code>.
+</p></li><li><p>The widget for specifying the web services URL must have <code>id</code>
+    attribute <code>ws-url</code>.
+</p></li><li><p>The widget for specifying the spreadsheet name must have <code>id</code>
+    attribute <code>ss-name</code>.
+</p></li><li><p>The button for clearing the spreadsheet must have <code>id</code> attribute
+    <code>clear</code>.
+</p></li><li><p>The widget used for changing a cell must have an <code>id</code> attribute
+    equal to the cell ID, like <code>a1</code>, <code>b2</code>, etc.
+</p></li><li><p>Each cell widget must have a <code>data-is-focused</code> attribute which
+    should be <code>&quot;true&quot;</code> iff the cell has focus.
+</p></li></ul></section><section data-level="h2"><h2>Design Considerations</h2><p>Here are some thoughts about the design of this project.
+</p><section data-level="h3"><h3>React Components</h3><p>Most designs would identify the following three React components:
+</p><ul><li><p><code>Cell</code>: Represents an individual spreadsheet cell.  
+</p></li><li><p><code>Spreadsheet</code>: Represents an entire spreadsheet.  It would be
+     rendered as a table of <code>Cell</code> components.
+</p></li><li><p><code>Clear</code>: Represents the clear widget.
+</p></li></ul></section><section data-level="h3"><h3>Local Spreadsheet Representation</h3><p>In the previous project, we stored the spreadsheet data (both
+expressions and values) as attributes within the DOM.  Doing so
+for this project would not be in keeping with the spirit of the
+requirements that the spreadsheet be implemented using React.
+Possibilities include:
+</p><ol><li><p> <span id="monolith-repr">A</span> single object having a TS type like:
+</p><pre class="hljs language-ts">    type SpreadsheetData = {
+      [cellId: string]: { expr: string, value: number }
+    };
+</pre><p>    An advantage of this representation is that all spreadsheet data
+    is consolidated together, which may make development easier.  A
+    disadvantage is that all spreadsheet changes could require
+    re-rendering the entire spreadsheet.
+</p></li><li><p> <span id="props-repr">Each</span> <code>Cell</code> component would have <code>value</code> and
+    <code>expr</code> props.  This is similar to the distributed representation
+    used in the previous project.
+</p><p>    An advantage of this representation is that it may be possible to
+    implement a local change like focusing a cell entirely within a
+    cell.  A disadvantage would be that any changes in cell props
+    would require re-rendering the entire spreadsheet.  Another
+    disadvantage is that the spreadsheet data would be scattered
+    across all the cells representing the spreadsheet.
+</p></li></ol></section></section><section data-level="h2"><h2>Locations for Web Service Calls</h2><p>Web service calls could be made at:
+</p><ol><li><p>The cell level.
+</p></li><li><p>The spreadsheet level.
+</p></li></ol><p>or both.
+</p><p>(1) would require drilling the <code>ws</code> prop down all the way to the
+<code>Cell</code> component.  Since most spreadsheet operations entail a global
+change to the spreadsheet, (2) appears preferable.  Note that both
+alternatives will require upcalls from the <code>Cell</code> to the
+<code>Spreadsheet</code> level via callback props.
+</p></section><section data-level="h2"><h2>Cell Structure</h2><p>In keeping with React's
+
+<a href="https://react.dev/learn/sharing-state-between-components#a-single-source-of-truth-for-each-state">single source of truth</a> design principal, it seems reasonable that
+each <code>Cell</code> have some kind of <code>content</code> state which reflects the
+current display of that cell.
+</p><ol><li><p>An unfocused cell would have its <code>content</code> state set to the value
+    of the cell.
+</p></li><li><p>A focused cell would have its <code>content</code> state set to the expression
+    for that cell (which may have been partially edited by the user).
+</p></li></ol></section><section data-level="h2"><h2>Rendering Variations</h2><p>Considering the hierarchical and immutable nature of React components,
+as well as the fact that most spreadsheet operations can affect
+multiple cells, the simplest alternative is to re-render the entire
+spreadsheet after any change.  Of course, React will attempt to
+minimize the amount of work done during this re-render, avoiding any
+unnecessary DOM updates and possibly even re-renders when the content
+of a subtree has not changed.
+</p><p>Since a typical spreadsheet operation will typically update only a
+small portion of the 100 cells in our \(10\times10\) spreadsheet,
+re-rendering all 100 cells seems particularly wasteful.  Fortunately,
+there is an alternative.
+</p><ol><li><p>The Spreadsheet component passes in a registration callback to a
+    descendant cell; passing in this registration callback will
+    require prop drilling.
+</p></li><li><p>Each cell calls the registration function after the first render
+    (this can be done within an effect with empty dependencies).  In
+    this call, the cell will pass an argument identifying its cell-id
+    as well as an updater function which allows updating selected
+    parts of the cell's state.  This updater function is recorded
+    within some data structure in the spreadsheet component.
+</p></li><li><p>When the spreadsheet component finishes its first render, it records
+    the data structure within its state (or a ref).
+</p></li><li><p>Subsequently, whenever the spreadsheet wishes to update the state
+    of the cell, it simply calls the updater function.
+</p></li></ol><p>This pattern allows the spreadsheet to update the state of a descendant
+cell without requiring a re-render of the complete spreadsheet.
+</p></section><section data-level="h2"><h2>Hints</h2><p>The following points are worth noting:
+</p><ul><li><p>It is easiest to start this project using your solution to
+     <a href="../prj4/prj4.html">Project 4</a> or the  <a href="../prj4-sol">provided
+    solution</a> (the solution link will not be working at the time this
+    project is assigned but should become functional soon after the
+    expiry of the late submission deadline).  You will need to
+    reimplement the code which implements the functionality of the
+    spreadsheet using hooks-based React functional components but can
+    reuse the outer setup code almost without needing to make any
+    changes.
+</p></li><li><p>React does not play well with content editable content; it is
+     <a href="https://blixtdev.com/how-to-use-contenteditable-with-react/">possible</a>
+    to overcome these problems, but for this project it may be a good
+    idea to use an <code>&lt;input></code> element instead.
+</p><p>    The previous project used  <code class="hljs language-html">&lt;td
+    contentEditable=&quot;true&quot;>&lt;/td></code> to represent spreadsheet cells.
+    Since this project requires the use of React, it may be easier to
+    replace the use of <code>contentEditable</code> with
+     <code class="hljs language-html">&lt;td>&lt;input .../>&lt;/td></code>, where the <code>&lt;input></code> widget
+    will hold the current display for a spreadsheet cell.
+</p></li><li><p>If you decide to reuse the DOM-based UI from 
+    <a href="../prj4/prj4.html">Project 4</a> for the form allowing specifying the web service URL
+    and spreadsheet name, then the React app may need to be reloaded
+    whenever the form is reloaded.  This could reload the React app
+    into the same root element which will produce React warnings.
+    These warning can be avoided by first creating a new root element
+    into which the spreadsheet is loaded using code like the following:
+</p><pre class="hljs language-javascript">    //static root of spreadsheet in HTML
+    const ss = document.querySelector('#ss')!;
+    ss.innerHTML = '';
+    //create a new root element to avoid warnings
+    const root = document.createElement('div');
+    ss.append(root);
+    //ws and ssName from form submission;
+    //errors instance of Errors from Project 4
+    //Spreadsheet a functional React component
+    const spreadsheet =
+      React.createElement(Spreadsheet, {ws, ssName, errors});
+    ReactDom.createRoot(root).render(spreadsheet);
+</pre></li><li><p>It is probably best to set up initial code for displaying an empty
+    spreadsheet before you start adding functionality to it.
+</p></li><li><p>The initial spreadsheet load should be done using an effect which
+    runs when the spreadsheet is first mounted into the DOM.
+</p></li></ul><p>When submitting, please include a <code>.gitignore</code> which ensures that
+built artifacts are not checked in to git.  If using a set up like
+ <a href="../prj4/prj4.html">Project 4</a>, set up <code>node_modules</code>, <code>dist</code>, <code>target</code>
+and <code>.parcel-cache</code> to be ignored.
+</p></section></section></div>
+    </div>
+
+    <script type="module" src="../../assets/scripts/slide-controls.mjs"></script>
+    <script type="module" src="../../assets/scripts/nav.mjs"></script> 
+    <script type="module" src="../../assets/scripts/highlight.mjs"></script>
+</body>
+</html>
+
