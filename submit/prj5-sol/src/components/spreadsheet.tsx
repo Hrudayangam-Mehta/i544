@@ -5,170 +5,201 @@ import { Errors, makeElement } from '../lib/utils.js';
 
 const [N_ROWS, N_COLS] = [10, 10];
 
-export default async function make(ws: SpreadsheetWs, ssName: string) {
-  return await Spreadsheet.make(ws, ssName);
+type SpreadsheetData = {
+  [cellId: string]: { expr: string, value: number }
+};
+
+interface Props {
+  ws: SpreadsheetWs;
+  ssName: string;
 }
 
-class Spreadsheet {
-  private readonly ws: SpreadsheetWs;
-  private readonly ssName: string;
-  private readonly errors: Errors;
-  private focusedCellId: string;
-  private copySrcCellId?: string;
+const Spreadsheet: React.FC<Props> = ({ ws, ssName }) => {
+  const [spreadsheetData, setSpreadsheetData] = useState<SpreadsheetData>({});
+  const [focusedCellId, setFocusedCellId] = useState<string>('');
+  const [copySrcCellId, setCopySrcCellId] = useState<string | undefined>(undefined);
+  const errors = new Errors();
 
-  constructor(ws: SpreadsheetWs, ssName: string) {
-    this.ws = ws;
-    this.ssName = ssName;
-    this.errors = new Errors();
-    this.focusedCellId = '';
-    this.makeEmptySS();
-    this.addListeners();
-  }
+  useEffect(() => {
+    const load = async () => {
+      const loadResult = await ws.dumpWithValues(ssName);
+      if (!loadResult.isOk) {
+        errors.display(loadResult.errors);
+      } else {
+        errors.clear();
+        setSpreadsheetData(loadResult.val.reduce((acc, [cellId, expr, value]) => ({
+          ...acc,
+          [cellId]: { expr, value }
+        }), {}));
+      }
+    };
+    load();
+  }, []);
 
-  static async make(ws: SpreadsheetWs, ssName: string) {
-    const ss = new Spreadsheet(ws, ssName);
-    await ss.load();
-    return ss;
-  }
-
-  private addListeners() {
-    const clear = document.querySelector('#clear')!;
-    clear.addEventListener('click', this.clearSpreadsheet);
-    document.querySelectorAll('.cell').forEach(cell => {
-      cell.addEventListener('focusin', this.focusCell);
-      cell.addEventListener('focusout', this.blurCell);
-      cell.addEventListener('copy', this.copyCell);
-      cell.addEventListener('paste', this.pasteCell);
-    });
-  }
-
-  private readonly clearSpreadsheet = async (ev: Event) => {
-    ev.stopPropagation();
-    ev.preventDefault();
-    const clearResult = await this.ws.clear(this.ssName);
+  const clearSpreadsheet = async () => {
+    const clearResult = await ws.clear(ssName);
     if (clearResult.isOk) {
-      this.errors.clear();
-      document.querySelectorAll('.cell').forEach(c => {
-        c.setAttribute('data-value', '');
-        c.setAttribute('data-expr', '');
-        c.textContent = '';
-      });
+      errors.clear();
+      setSpreadsheetData({});
     } else {
-      this.errors.display(clearResult.errors);
+      errors.display(clearResult.errors);
     }
   };
 
-  private readonly focusCell = (ev: Event) => {
-    ev.stopPropagation();
-    const target = ev.target! as HTMLElement;
-    target.textContent = target.getAttribute('data-expr');
-    this.focusedCellId = target.id;
+  const focusCell = (cellId: string) => {
+    setFocusedCellId(cellId);
   };
 
-  private readonly blurCell = async (ev: Event) => {
-    ev.stopPropagation();
-    const target = ev.target! as HTMLElement;
-    const cellId = target.id;
-    const expr = target.textContent!.trim();
+  const blurCell = async (cellId: string, expr: string) => {
     const updatesResult =
       expr.length > 0
-        ? await this.ws.evaluate(this.ssName, cellId, expr)
-        : await this.ws.remove(this.ssName, cellId);
+        ? await ws.evaluate(ssName, cellId, expr)
+        : await ws.remove(ssName, cellId);
     if (updatesResult.isOk) {
-      this.errors.clear();
-      target.setAttribute('data-expr', expr);
-      this.update(updatesResult.val);
+      errors.clear();
+      setSpreadsheetData(prevData => ({
+        ...prevData,
+        [cellId]: { ...prevData[cellId], expr },
+        ...Object.fromEntries(Object.entries(updatesResult.val).map(([cellId, value]) => [cellId, { ...prevData[cellId], value }]))
+      }));
+      
+      
     } else {
-      target.textContent = target.getAttribute('data-value');
-      this.errors.display(updatesResult.errors);
+      errors.display(updatesResult.errors);
     }
-    this.focusedCellId = '';
+    setFocusedCellId('');
   };
 
-  private readonly copyCell = (ev: Event) => {
-    ev.stopPropagation();
-    ev.preventDefault();
-    const target = ev.target! as HTMLElement;
-    target.classList.add('is-copy-source');
-    this.copySrcCellId = target.id;
+  const copyCell = (cellId: string) => {
+    setCopySrcCellId(cellId);
   };
 
-  private readonly pasteCell = async (ev: Event) => {
-    ev.stopPropagation();
-    ev.preventDefault();
-    if (!this.copySrcCellId) return;
-    const srcCellId = this.copySrcCellId;
-    this.copySrcCellId = undefined;
-    const target = ev.target! as HTMLElement;
-    const destCellId = target.id;
-    const updatesResult = await this.ws.copy(this.ssName, destCellId, srcCellId);
-    const queryResult = await this.ws.query(this.ssName, destCellId);
+  // const pasteCell = async (destCellId: string) => {
+  //   if (!copySrcCellId) return;
+  //   const srcCellId = copySrcCellId;
+  //   setCopySrcCellId(undefined);
+  //   const updatesResult = await ws.copy(ssName, destCellId, srcCellId);
+  //   const queryResult = await ws.query(ssName, destCellId);
+  //   if (updatesResult.isOk && queryResult.isOk) {
+  //     errors.clear();
+  //     setSpreadsheetData(prevData => ({
+  //       ...prevData,
+  //       [destCellId]: { ...prevData[destCellId], expr: queryResult.val.expr },
+  //       ...Object.fromEntries(Object.entries(updatesResult.val).map(([cellId, value]) => [cellId, { ...prevData[cellId], value }]))
+  //     }));
+      
+  //   } else if (!updatesResult.isOk) {
+  //     errors.display(updatesResult.errors);
+  //   } else if (!queryResult.isOk) {
+  //     errors.display(queryResult.errors);
+  //   }
+  // };
+  const pasteCell = async (destCellId: string) => {
+    if (!copySrcCellId) return;
+    const srcCellId = copySrcCellId;
+    setCopySrcCellId(undefined);
+    const updatesResult = await ws.copy(ssName, destCellId, srcCellId);
+    const queryResult = await ws.query(ssName, destCellId);
     if (updatesResult.isOk && queryResult.isOk) {
-      this.errors.clear();
-      this.update(updatesResult.val);
-      target.setAttribute('data-expr', queryResult.val.expr);
-      target.textContent = target.getAttribute('data-expr');
-      document.querySelector(`#${srcCellId}`)!.classList.remove('is-copy-source');
+      errors.clear();
+      setSpreadsheetData(prevData => ({
+        ...prevData,
+        [destCellId]: { ...prevData[destCellId], expr: queryResult.val.expr },
+        ...Object.fromEntries(Object.entries(updatesResult.val).map(([cellId, value]) => [cellId, { ...prevData[cellId], value }]))
+      }));
+      setCopySrcCellId(undefined);
     } else if (!updatesResult.isOk) {
-      this.errors.display(updatesResult.errors);
+      errors.display(updatesResult.errors);
     } else if (!queryResult.isOk) {
-      this.errors.display(queryResult.errors);
+      errors.display(queryResult.errors);
     }
   };
+  
 
-  private async load() {
-    const loadResult = await this.ws.dumpWithValues(this.ssName);
-    if (!loadResult.isOk) {
-      this.errors.display(loadResult.errors);
-    } else {
-      this.errors.clear();
-      loadResult.val.forEach(([cellId, expr, value]) => {
-        const cell = document.querySelector(`#${cellId}`)!;
-        cell.setAttribute('data-expr', expr);
-        const val = value.toString();
-        cell.setAttribute('data-value', val);
-        cell.textContent = val;
-      });
-    }
-  }
+  return (
+    <>
+      <button id="clear" onClick={clearSpreadsheet}>Clear</button>
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            {[...Array(N_COLS)].map((_, colIdx) =>
+              <th key={colIdx}>{String.fromCharCode('A'.charCodeAt(0) + colIdx)}</th>
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {[...Array(N_ROWS)].map((_, rowIdx) =>
+            <tr key={rowIdx}>
+              <th>{rowIdx + 1}</th>
+              {[...Array(N_COLS)].map((_, colIdx) => {
+                const cellId = String.fromCharCode('a'.charCodeAt(0) + colIdx) + (rowIdx + 1);
+                return (
+                  <td key={colIdx}>
+                    <Cell
+                      cellId={cellId}
+                      data={spreadsheetData[cellId]}
+                      isFocused={focusedCellId === cellId}
+                      isCopySource={copySrcCellId === cellId}
+                      onFocus={() => focusCell(cellId)}
+                      onBlur={(expr: string) => blurCell(cellId, expr)}
+                      onCopy={() => copyCell(cellId)}
+                      onPaste={() => pasteCell(cellId)}
+                    />
+                  </td>
+                );
+              })}
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </>
+  );
+};
 
-  private update(updates: Record<string, number>) {
-    for (const [cellId, value] of Object.entries(updates)) {
-      if (cellId !== this.focusedCellId) {
-        const cell = document.querySelector(`#${cellId}`)!;
-        const val = value.toString();
-        cell.textContent = val;
-        cell.setAttribute('data-value', val);
-      }
-    }
-  }
-
-  private makeEmptySS() {
-    const ssDiv = document.querySelector('#ss')!;
-    ssDiv.innerHTML = '';
-    const ssTable = makeElement('table');
-    const header = makeElement('tr');
-    const clearCell = makeElement('td');
-    const clear = makeElement('button', { id: 'clear', type: 'button' }, 'Clear');
-    clearCell.append(clear);
-    header.append(clearCell);
-    const A = 'A'.charCodeAt(0);
-    for (let i = 0; i < N_COLS; i++) {
-      header.append(makeElement('th', {}, String.fromCharCode(A + i)));
-    }
-    ssTable.append(header);
-    for (let i = 0; i < N_ROWS; i++) {
-      const row = makeElement('tr');
-      row.append(makeElement('th', {}, (i + 1).toString()));
-      const a = 'a'.charCodeAt(0);
-      for (let j = 0; j < N_COLS; j++) {
-        const colId = String.fromCharCode(a + j);
-        const id = colId + (i + 1);
-        const cell = makeElement('td', { id, class: 'cell', contentEditable: 'true' });
-        row.append(cell);
-      }
-      ssTable.append(row);
-    }
-    ssDiv.append(ssTable);
-  }
+interface CellProps {
+  cellId: string;
+  data?: { expr: string; value: number };
+  isFocused: boolean;
+  isCopySource: boolean;
+  onFocus: () => void;
+  onBlur: (expr: string) => void;
+  onCopy: () => void;
+  onPaste: () => void;
 }
+
+const Cell: React.FC<CellProps> = ({
+  cellId,
+  data,
+  isFocused,
+  isCopySource,
+  onFocus,
+  onBlur,
+  onCopy,
+  onPaste
+}) => {
+  const [content, setContent] = useState<string>('');
+
+  useEffect(() => {
+    if (isFocused) {
+      setContent(data?.expr ?? '');
+    } else {
+      setContent(data?.value?.toString() ?? '');
+    }
+  }, [data, isFocused]);
+
+  return (
+    <input
+      id={cellId}
+      className={`cell ${isCopySource ? 'is-copy-source' : ''}`}
+      value={content}
+      onChange={e => setContent(e.target.value)}
+      onFocus={onFocus}
+      onBlur={() => onBlur(content)}
+      onCopy={onCopy}
+      onPaste={onPaste}
+    />
+  );
+};
+
+export default Spreadsheet;

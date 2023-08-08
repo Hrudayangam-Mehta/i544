@@ -2,10 +2,7 @@ import React, { useState } from 'react';
 import { Errors, makeElement } from '../lib/utils.js'; // Update the import path if needed
 import SpreadsheetWs from '../lib/ss-ws'; // Update the import path if needed
 import makeSpreadsheet from '../lib/spreadsheet.js'; // Update the import path if needed
-// import React, { useState } from 'react';
-// import { Errors, makeElement } from './utils'; // Update the import path
-// import SpreadsheetWs from './ss-ws'; // Update the import path
-// import makeSpreadsheet from './spreadsheet'; // Update the import path
+
 
 export default function App() {
   const [wsUrl, setWsUrl] = useState('');
